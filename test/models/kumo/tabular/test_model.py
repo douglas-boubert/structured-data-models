@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from collections.abc import Callable
 from typing import Literal, cast
 
 import pandas as pd
@@ -331,6 +332,24 @@ def test_missing_values_pass_through_fit_predict(
     assert cached.shape == direct.shape
     assert (direct.numerical.diff(dim=-1) >= 0).all()
     assert (cached.numerical.diff(dim=-1) >= 0).all()
+
+
+@pytest.mark.parametrize("task", ["classification", "regression"])
+def test_predict_gradients_reach_query(
+    task: Literal["classification", "regression"],
+    check_query_gradients: Callable[[KumoTabular, str], None],
+) -> None:
+    check_query_gradients(_build(task, "small").requires_grad_(False), task)
+
+
+@pytest.mark.parametrize("task", ["classification", "regression"])
+def test_predict_gradients_are_finite_at_edges(
+    task: Literal["classification", "regression"],
+    check_query_gradients_at_edges: Callable[[KumoTabular, str], None],
+) -> None:
+    check_query_gradients_at_edges(
+        _build(task, "small").requires_grad_(False), task
+    )
 
 
 @pytest.mark.parametrize("estimator_batch_size", [2, None])

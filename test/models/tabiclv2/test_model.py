@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from collections.abc import Callable
+
 import pytest
 import torch
 
@@ -289,6 +291,40 @@ def test_tabiclv2_many_classes_forward_and_cache(
         estimator_batch_size=estimator_batch_size,
     )
     assert model.predict(x_query).allclose(out)
+
+
+def _randomized() -> TabICLv2:
+    model = TabICLv2(pretrained=False).requires_grad_(False)
+    # Residual branches are zero-initialized, so an untrained model ignores
+    # the query features.
+    for parameter in model.parameters():
+        if not parameter.any():
+            torch.nn.init.normal_(parameter, std=0.02)
+    return model
+
+
+@pytest.mark.parametrize("task", ["classification", "regression"])
+def test_predict_gradients_reach_query(
+    task: str,
+    check_query_gradients: Callable[[TabICLv2, str], None],
+) -> None:
+    check_query_gradients(_randomized(), task)
+
+
+@pytest.mark.parametrize("task", ["classification", "regression"])
+def test_predict_gradients_match_finite_differences(
+    task: str,
+    check_query_finite_differences: Callable[[TabICLv2, str], None],
+) -> None:
+    check_query_finite_differences(_randomized(), task)
+
+
+@pytest.mark.parametrize("task", ["classification", "regression"])
+def test_predict_gradients_are_finite_at_edges(
+    task: str,
+    check_query_gradients_at_edges: Callable[[TabICLv2, str], None],
+) -> None:
+    check_query_gradients_at_edges(_randomized(), task)
 
 
 @onlyCUDA

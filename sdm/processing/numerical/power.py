@@ -29,6 +29,23 @@ def _yeojohnson_transform(
 ) -> Tensor:
     eps = torch.finfo(inp.dtype).eps
     two_minus_lambda = 2 - lambdas
+    if out is None and torch.is_grad_enabled():
+        # Use `where` over `abs`/`copysign` to keep a unit derivative at zero,
+        # and a safe exponent to avoid NaN gradients at λ = 0 or 2.
+        positive = inp >= 0
+        magnitude_log = torch.where(positive, inp, -inp).log1p()
+        exponents = torch.where(positive, lambdas, two_minus_lambda)
+        zero_exponent = exponents.abs() < eps
+        safe_exponents = exponents.masked_fill(zero_exponent, 1.0)
+        # Overflow to infinity without passing an infinite derivative back.
+        scaled_log = safe_exponents * magnitude_log
+        log_max = math.log(torch.finfo(inp.dtype).max)
+        power = scaled_log.clamp(max=log_max).expm1()
+        power = power.masked_fill(scaled_log > log_max, torch.inf)
+        power = power / safe_exponents
+        transformed = torch.where(zero_exponent, magnitude_log, power)
+        return torch.where(positive, transformed, -transformed)
+
     if magnitude_log is None:
         magnitude_log = inp.abs().log1p_()
     if positive is None:

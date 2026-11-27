@@ -8,7 +8,6 @@ import torch
 
 from sdm import Stype, TableTensor
 from sdm.processing import InvertibleMixin, Processor
-from sdm.processing.numerical._stats import _isfinite
 
 
 class Clip(Processor, InvertibleMixin):
@@ -70,14 +69,12 @@ class Clip(Processor, InvertibleMixin):
                 numerical=numerical.clamp(self.min_value, self.max_value)
             )
         assert self.method == "saturate"
-        assert not numerical.requires_grad
         bound = self.max_value
-        unit = numerical.div(bound).abs_()
-        root = unit.square().add_(1).sqrt_()
-        unit.div_(root).masked_fill_(~_isfinite(root), 1.0)
-        del root
-        clipped = unit.mul_(bound).mul_(numerical.sign())
-        torch.where(numerical.isnan(), numerical, clipped, out=clipped)
+        # Clamping keeps `unit.square()` finite and maps infinities to the
+        # endpoints with zero gradient.
+        limit = torch.finfo(numerical.dtype).max ** 0.5 / 2
+        unit = numerical.div(bound).clamp_(-limit, limit)
+        clipped = unit.square().add_(1).rsqrt_().mul(unit).mul_(bound)
         return table.replace_blocks(numerical=clipped)
 
     def _inverse_transform(self, table: TableTensor) -> TableTensor:

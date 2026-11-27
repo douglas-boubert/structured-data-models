@@ -25,7 +25,8 @@ def _torch_interp(x: Tensor, xp: Tensor, fp: Tensor) -> Tensor:
     y0, y1 = fp[idx - 1], fp[idx]
 
     denom = x1 - x0
-    weight = torch.where(denom != 0, (x - x0) / denom, 0.0)
+    flat = denom == 0
+    weight = (x - x0).div_(denom.masked_fill(flat, 1)).masked_fill_(flat, 0)
     result = torch.lerp(y0, y1, weight)
 
     result = torch.where(x <= xp[0], fp[0], result)
@@ -70,7 +71,10 @@ def _batched_interp(
         upper = references[:, -1:]
 
     denom = x1 - x0
-    weight = torch.where(denom != 0, (values - x0) / denom, 0.0)
+    flat = denom == 0
+    weight = (
+        (values - x0).div_(denom.masked_fill(flat, 1)).masked_fill_(flat, 0)
+    )
     result = torch.lerp(y0, y1, weight)
 
     result = torch.where(values <= lower_boundary, lower, result)
