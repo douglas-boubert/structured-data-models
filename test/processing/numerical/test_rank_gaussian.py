@@ -1,13 +1,15 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import math
+
 import pytest
 import torch
 from torch import Tensor
 
 from sdm import TableTensor
 from sdm.processing import RankGaussian
-from sdm.testing import onlyCUDA, withCUDA
+from sdm.testing import onlyCUDA, onlyMPS, withCUDA
 
 
 def edge_query(context: Tensor) -> Tensor:
@@ -288,6 +290,74 @@ def test_chunks_match_single_chunk(monkeypatch: pytest.MonkeyPatch) -> None:
         atol=0,
         equal_nan=True,
     )
+
+
+@withCUDA
+@pytest.mark.parametrize(
+    ("context", "max_knots"),
+    [
+        ([0.0, 0.0, 0.0, 1.0, 2.0, 3.0, 3.0], None),
+        ([0.0, math.nan, 1.0, math.nan, 2.0, 3.0, math.nan], None),
+        ([0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0], 16),
+    ],
+    ids=["ties", "nan_padded", "max_knots"],
+)
+def test_gradient_is_finite_at_repeated_knots(
+    device: torch.device,
+    context: list[float],
+    max_knots: int | None,
+) -> None:
+    processor = RankGaussian(max_knots=max_knots).fit(
+        TableTensor.from_tensor(
+            torch.tensor(context, dtype=torch.float64, device=device)[:, None]
+        )
+    )
+    query = torch.tensor(
+        [[-1.0], [0.0], [0.5], [3.0], [4.0]],
+        dtype=torch.float64,
+        device=device,
+        requires_grad=True,
+    )
+
+    actual = processor.transform(TableTensor.from_tensor(query))
+    (grad,) = torch.autograd.grad(actual.numerical.sum(), query)
+
+    assert grad.isfinite().all()
+    # Constant beyond the fitted range.
+    assert (grad[[0, -1]] == 0).all()
+
+
+@withCUDA
+def test_is_differentiable(device: torch.device) -> None:
+    context = torch.randn(64, 2, dtype=torch.float64, device=device)
+    processor = RankGaussian().fit(TableTensor.from_tensor(context))
+    # Midpoints between neighboring knots, away from the kinks:
+    knots = context.sort(dim=0).values
+    query = ((knots[1:] + knots[:-1]) / 2).requires_grad_()
+
+    assert torch.autograd.gradcheck(
+        lambda x: processor.transform(TableTensor.from_tensor(x)).numerical,
+        query,
+    )
+
+
+@onlyMPS
+def test_is_differentiable_on_mps() -> None:
+    context = torch.randn(64, 2, device="mps")
+    processor = RankGaussian().fit(TableTensor.from_tensor(context))
+    knots = context.sort(dim=0).values
+    query = ((knots[1:] + knots[:-1]) / 2).requires_grad_()
+
+    processor.transform(
+        TableTensor.from_tensor(query)
+    ).numerical.sum().backward()
+
+    reference = query.detach().cpu().requires_grad_()
+    processor.to("cpu").transform(
+        TableTensor.from_tensor(reference)
+    ).numerical.sum().backward()
+    assert query.grad is not None
+    torch.testing.assert_close(query.grad.cpu(), reference.grad)
 
 
 def test_loaded_state_keeps_double_precision() -> None:

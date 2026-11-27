@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import math
+
 import pytest
 import torch
 
@@ -425,3 +427,70 @@ def test_power_transform_inverse_beyond_the_fitted_bound_falls_back_to_max(
 
     assert restored.isfinite().all()
     assert (restored[1:] == inp.max()).all()
+
+
+@withCUDA
+def test_power_transform_is_differentiable(device: torch.device) -> None:
+    context = torch.randn(64, 3, dtype=torch.float64, device=device)
+    context[:, 0] = context[:, 0].exp()
+    context[:, 1] = -context[:, 1].exp()
+    processor = PowerTransform().fit(TableTensor.from_tensor(context))
+    query = torch.tensor(
+        [[0.0, -1.5, 0.3], [2.0, 0.0, -0.7], [-0.4, 1.0, 0.0]],
+        dtype=torch.float64,
+        device=device,
+        requires_grad=True,
+    )
+
+    def transform(x: torch.Tensor) -> torch.Tensor:
+        return processor.transform(TableTensor.from_tensor(x)).numerical
+
+    with torch.no_grad():
+        expected = transform(query)
+    torch.testing.assert_close(transform(query), expected)
+    assert torch.autograd.gradcheck(transform, query)
+
+
+@withCUDA
+def test_power_transform_is_differentiable_at_log_lambdas(
+    device: torch.device,
+) -> None:
+    processor = PowerTransform(standardize=False).fit(
+        TableTensor.from_tensor(
+            torch.randn(16, 2, dtype=torch.float64, device=device)
+        )
+    )
+    # λ = 0 and λ = 2 use the logarithmic branch for x >= 0 and x < 0.
+    processor.lambdas.copy_(processor.lambdas.new_tensor([[0.0, 2.0]]))
+    query = torch.tensor(
+        [[0.5, -0.5], [-0.5, 0.5], [0.0, 0.0]],
+        dtype=torch.float64,
+        device=device,
+        requires_grad=True,
+    )
+
+    assert torch.autograd.gradcheck(
+        lambda x: processor.transform(TableTensor.from_tensor(x)).numerical,
+        query,
+    )
+
+
+@withCUDA
+def test_power_transform_gradient_is_finite_on_overflow(
+    device: torch.device,
+) -> None:
+    processor = PowerTransform(standardize=False).fit(
+        TableTensor.from_tensor(torch.randn(16, 2, device=device))
+    )
+    # Both exponents overflow float32 for |x| = 1e30 on one side of zero.
+    processor.lambdas.copy_(processor.lambdas.new_tensor([[0.5, 1.5]]))
+    query = torch.tensor(
+        [[1e30, 1e30], [-1e30, -1e30], [math.inf, math.inf]],
+        device=device,
+        requires_grad=True,
+    )
+
+    actual = processor.transform(TableTensor.from_tensor(query))
+    (grad,) = torch.autograd.grad(actual.numerical.sum(), query)
+
+    assert grad.isfinite().all()

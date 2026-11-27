@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import io
+from collections.abc import Callable
 from datetime import datetime
 from textwrap import dedent
 from typing import cast
@@ -10,6 +11,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 import torch
+from torch import Tensor
 
 from sdm import (
     CategoricalTensor,
@@ -630,6 +632,28 @@ def test_stack_preserves_grad() -> None:
     assert stacked.numerical.requires_grad
     stacked.numerical.sum().backward()
     assert x.grad is not None
+
+
+@pytest.mark.parametrize(
+    "index",
+    [
+        lambda t: t.index_select(0, torch.tensor([2, 0, 2])),
+        lambda t: t[torch.tensor([2, 0, 2])],
+        lambda t: t[torch.tensor([True, False, True])],
+    ],
+    ids=["index_select", "long", "bool"],
+)
+def test_index_preserves_grad(index: Callable[[Tensor], Tensor]) -> None:
+    x = torch.randn(3, 2, requires_grad=True)
+    tensor = TableTensor.from_tensor(x * 2)
+
+    out = index(tensor)
+
+    assert isinstance(out, TableTensor)
+    assert out.numerical.requires_grad
+    out.numerical.sum().backward()
+    assert x.grad is not None
+    assert x.grad.count_nonzero() > 0
 
 
 def test_cat_preserves_grad() -> None:

@@ -72,6 +72,8 @@ The cached interface has the same prediction contract as the one-shot call.
 Use one-shot {py:meth}`~sdm.models.ICLModel.forward` calls for one-time calls when tasks change frequently, and use the {py:meth}`~sdm.models.ICLModel.fit`+{py:meth}`~sdm.models.ICLModel.predict` flow for large batch predictions over a single fixed task.
 
 Unlike {py:meth}`~sdm.models.ICLModel.forward`, {py:meth}`~sdm.models.ICLModel.predict` does not support gradient-based fine-tuning and raises if the model is in train mode.
+It is, however, differentiable with respect to its raw numerical query inputs: pass a query tensor with `requires_grad=True` to obtain predictions that support `backward()`, *e.g.*, for gradient-based input optimization or sensitivity analysis.
+These gradients are zero at missing query values and wherever preprocessing maps a value to a constant, *e.g.*, beyond clipping bounds or outside the value range of the context.
 
 ## Model Concepts
 

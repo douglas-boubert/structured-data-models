@@ -172,7 +172,7 @@ class RankGaussian(Processor):
                 probabilities,
             )
             normal = _ndtri(quantiles).reshape(rows.shape)
-            out.copy_(normal.masked_fill_(rows.isnan(), torch.nan).mT)
+            out.copy_(normal.masked_fill(rows.isnan(), torch.nan).mT)
         return table.replace_blocks(numerical=output)
 
     def __repr__(self, *, indent: int = 0) -> str:

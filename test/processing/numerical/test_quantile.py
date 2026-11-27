@@ -178,6 +178,30 @@ def test_quantile_transform_normal_distribution_is_finite_at_bounds(
     )
 
 
+@withCUDA
+def test_quantile_transform_gradient_is_finite_at_tied_knots(
+    device: torch.device,
+) -> None:
+    processor = QuantileTransform(subsample=None).fit(
+        TableTensor.from_tensor(
+            torch.tensor(
+                [[0.0], [0.0], [0.0], [1.0], [2.0], [3.0], [3.0]],
+                device=device,
+            )
+        )
+    )
+    query = torch.tensor(
+        [[-1.0], [0.0], [0.5], [3.0], [4.0]],
+        device=device,
+        requires_grad=True,
+    )
+
+    actual = processor.transform(TableTensor.from_tensor(query))
+    (grad,) = torch.autograd.grad(actual.numerical.sum(), query)
+
+    assert grad.isfinite().all()
+
+
 @onlyCUDA
 def test_quantile_transform_rejects_mismatched_generator_device() -> None:
     table = TableTensor.from_tensor(torch.rand(8, 2, device="cuda"))

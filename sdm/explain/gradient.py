@@ -19,7 +19,9 @@ class GradientExplainer(
     """Return gradients showing how small input changes affect predictions.
 
     Gradients describe model predictions with respect to preprocessed
-    numerical query inputs, not the original input data.
+    numerical query inputs, not the original input data. For gradients with
+    respect to raw numerical queries, differentiate
+    :meth:`~sdm.models.ICLModel.predict` directly.
 
     For each output column, differentiate the sum of predictions over query
     rows and batch dimensions. Requires exactly one estimator.

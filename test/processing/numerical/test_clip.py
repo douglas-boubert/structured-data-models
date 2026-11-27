@@ -95,6 +95,43 @@ def test_clip_saturate_maps_overflow_to_bound(device: torch.device) -> None:
     )
 
 
+@withCUDA
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_clip_saturate_has_zero_gradient_at_extremes(
+    device: torch.device,
+    dtype: torch.dtype,
+) -> None:
+    inp = torch.tensor(
+        [[-math.inf, -1e20, 1e20, math.inf, torch.finfo(dtype).max]],
+        dtype=dtype,
+        device=device,
+        requires_grad=True,
+    ).mT
+
+    actual = Clip(-3.0, 3.0, method="saturate").transform(
+        TableTensor.from_tensor(inp)
+    )
+    (grad,) = torch.autograd.grad(actual.numerical.sum(), inp)
+
+    torch.testing.assert_close(grad, torch.zeros_like(grad))
+
+
+@withCUDA
+def test_clip_saturate_is_differentiable(device: torch.device) -> None:
+    inp = torch.tensor(
+        [[-6.0, 0.0], [3.0, 6.0]],
+        dtype=torch.float64,
+        device=device,
+        requires_grad=True,
+    )
+    processor = Clip(-3.0, 3.0, method="saturate")
+
+    assert torch.autograd.gradcheck(
+        lambda x: processor.transform(TableTensor.from_tensor(x)).numerical,
+        inp,
+    )
+
+
 @pytest.mark.parametrize("method", ["hard", "saturate"])
 def test_clip_inverse_leaves_clipped_values_unchanged(
     method: Literal["hard", "saturate"],

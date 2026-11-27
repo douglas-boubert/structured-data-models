@@ -1971,6 +1971,7 @@ def _split_with_sizes(
 
 
 @TableTensor.implements(aten.index_select.default)
+@preserve_autograd_state
 def _index_select(
     inp: TableTensor,
     dim: int,
@@ -1992,6 +1993,7 @@ def _index_select(
 
 
 @TableTensor.implements(aten.index.Tensor)
+@preserve_autograd_state
 def _index(
     inp: TableTensor,
     indices: Sequence[Tensor | None],
